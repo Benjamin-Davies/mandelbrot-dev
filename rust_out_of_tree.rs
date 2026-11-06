@@ -3,6 +3,7 @@
 //! Rust out-of-tree sample
 
 use kernel::prelude::*;
+use kernel::debugfs;
 
 module! {
     type: RustOutOfTree,
@@ -13,25 +14,22 @@ module! {
 }
 
 struct RustOutOfTree {
-    numbers: KVec<i32>,
+    file: Pin<KBox<debugfs::File<u32>>>,
 }
 
 impl kernel::Module for RustOutOfTree {
     fn init(_module: &'static ThisModule) -> Result<Self> {
         pr_info!("Rust out-of-tree sample (init)\n");
 
-        let mut numbers = KVec::new();
-        numbers.push(72, GFP_KERNEL)?;
-        numbers.push(108, GFP_KERNEL)?;
-        numbers.push(200, GFP_KERNEL)?;
+        let dir = debugfs::Dir::new(c"bend");
+        let file = KBox::pin_init(dir.read_only_file(c"foo", 42), GFP_KERNEL)?;
 
-        Ok(RustOutOfTree { numbers })
+        Ok(RustOutOfTree { file })
     }
 }
 
 impl Drop for RustOutOfTree {
     fn drop(&mut self) {
-        pr_info!("My numbers are {:?}\n", self.numbers);
         pr_info!("Rust out-of-tree sample (exit)\n");
     }
 }
