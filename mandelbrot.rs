@@ -11,8 +11,8 @@ use core::sync::atomic::Ordering;
 
 use kernel::prelude::*;
 
-use kernel::fs::Kiocb;
 use kernel::fs::file::File;
+use kernel::fs::Kiocb;
 use kernel::iov::IovIterDest;
 use kernel::miscdevice::MiscDevice;
 use kernel::miscdevice::MiscDeviceOptions;
@@ -44,9 +44,9 @@ struct MandelbrotFile {
 impl kernel::Module for Mandelbrot {
     fn init(_module: &'static ThisModule) -> Result<Self> {
         let _dev = KBox::pin_init(
-            MiscDeviceRegistration::register(
-                MiscDeviceOptions { name: c"mandelbrot" },
-            ),
+            MiscDeviceRegistration::register(MiscDeviceOptions {
+                name: c"mandelbrot",
+            }),
             GFP_KERNEL,
         )?;
 
@@ -58,19 +58,11 @@ impl kernel::Module for Mandelbrot {
 impl MiscDevice for MandelbrotDevice {
     type Ptr = KBox<MandelbrotFile>;
 
-    const HAS_READ_ITER: bool = true;
-
-    fn open(
-        _file: &File,
-        _misc: &MiscDeviceRegistration<Self>,
-    ) -> Result<Self::Ptr> {
+    fn open(_file: &File, _misc: &MiscDeviceRegistration<Self>) -> Result<Self::Ptr> {
         Ok(KBox::new(MandelbrotFile::default(), GFP_KERNEL)?)
     }
 
-    fn read_iter(
-        kiocb: Kiocb<'_, Self::Ptr>,
-        iov: &mut IovIterDest<'_>,
-    ) -> Result<usize> {
+    fn read_iter(kiocb: Kiocb<'_, Self::Ptr>, iov: &mut IovIterDest<'_>) -> Result<usize> {
         let this = kiocb.file();
         if this.consumed.fetch_or(true, Ordering::AcqRel) {
             return Ok(0);
