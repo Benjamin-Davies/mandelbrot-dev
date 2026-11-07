@@ -2,8 +2,17 @@
 
 //! Device driver that renders a Mandelbrot set
 
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering;
+
 use kernel::prelude::*;
-use kernel::debugfs;
+
+use kernel::fs::Kiocb;
+use kernel::fs::file::File;
+use kernel::iov::IovIterDest;
+use kernel::miscdevice::MiscDevice;
+use kernel::miscdevice::MiscDeviceOptions;
+use kernel::miscdevice::MiscDeviceRegistration;
 
 module! {
     type: Mandelbrot,
@@ -13,23 +22,70 @@ module! {
     license: "GPL",
 }
 
+const WIDTH: usize = 40;
+const HEIGHT: usize = 10;
+
 struct Mandelbrot {
-    _file: Pin<KBox<debugfs::File<u32>>>,
+    _dev: Pin<KBox<MiscDeviceRegistration<MandelbrotDevice>>>,
+}
+
+struct MandelbrotDevice;
+
+#[derive(Default)]
+struct MandelbrotFile {
+    consumed: AtomicBool,
 }
 
 impl kernel::Module for Mandelbrot {
     fn init(_module: &'static ThisModule) -> Result<Self> {
-        pr_info!("Mandelbrot (init)\n");
+        let _dev = KBox::pin_init(
+            MiscDeviceRegistration::register(
+                MiscDeviceOptions { name: c"mandelbrot" },
+            ),
+            GFP_KERNEL,
+        )?;
 
-        let dir = debugfs::Dir::new(c"bend");
-        let _file = KBox::pin_init(dir.read_only_file(c"foo", 42), GFP_KERNEL)?;
-
-        Ok(Mandelbrot { _file })
+        Ok(Mandelbrot { _dev })
     }
 }
 
-impl Drop for Mandelbrot {
-    fn drop(&mut self) {
-        pr_info!("Mandelbrot (exit)\n");
+#[vtable]
+impl MiscDevice for MandelbrotDevice {
+    type Ptr = KBox<MandelbrotFile>;
+
+    const HAS_READ_ITER: bool = true;
+
+    fn open(
+        _file: &File,
+        misc: &MiscDeviceRegistration<Self>,
+    ) -> Result<Self::Ptr> {
+        Ok(KBox::new(MandelbrotFile::default(), GFP_KERNEL)?)
+    }
+
+    fn read_iter(
+        mut kiocb: Kiocb<'_, Self::Ptr>,
+        iov: &mut IovIterDest<'_>,
+    ) -> Result<usize> {
+        let this = kiocb.file();
+        if this.consumed.fetch_or(true, Ordering::AcqRel) {
+            return Ok(0);
+        }
+
+        let mut row = [0; WIDTH + 1];
+        let mut total = 0;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                if (x + y) % 2 == 0 {
+                    row[x] = b'#';
+                } else {
+                    row[x] = b'.';
+                }
+            }
+            row[WIDTH] = b'\n';
+
+            total += iov.copy_to_iter(&row);
+        }
+
+        return Ok(total);
     }
 }
